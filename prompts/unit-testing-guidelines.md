@@ -1,154 +1,198 @@
 # Unit Testing Guidelines
 
-## Overview
-This document provides comprehensive guidelines for writing effective unit tests using pytest and other testing frameworks. Following these practices will ensure your tests are reliable, maintainable, and provide good coverage.
+> **TL;DR for Copilot**
+> * Use xUnit + FluentAssertions + AutoFixture + NSubstitute
+> * Test name: `UnitOfWork_StateUnderTest_ExpectedOutcome`
+> * Cover all public methods
+> * Provide guard‑tests via GuardClauseAssertion
+> * Inject dependencies with `DefaultAutoDataAttribute`
 
-## Core Principles
+# Unit Test Generation Guidelines
 
-### 1. Test Structure (AAA Pattern)
-- **Arrange**: Set up test data and dependencies
-- **Act**: Execute the code under test
-- **Assert**: Verify the expected outcomes
+## Testing Frameworks and Tools
 
-### 2. Test Naming Convention
-- Use descriptive names that explain what is being tested
-- Format: `test_should_[expected_behavior]_when_[condition]`
-- Example: `test_should_return_user_when_valid_id_provided`
+- **xUnit:** Utilize xUnit as the primary testing framework.
+- **Shouldly:** Use Shouldly for expressive assertions.
+- **AutoFixture:** Employ AutoFixture for automatic generation of test data.
+- **NSubstitute** Use NSubstitute for mocking.
 
-### 3. Test Independence
-- Each test should be independent and not rely on other tests
-- Use fixtures for shared setup code
-- Clean up after each test to avoid side effects
+## Naming Conventions
 
-## Pytest Best Practices
+- **Method Naming:** Adopt the "UnitOfWork_StateUnderTest_ExpectedBehavior" naming convention for test methods to clearly convey their purpose.
 
-### Fixtures
-```python
-@pytest.fixture
-def sample_user():
-    return User(id=1, name="John Doe", email="john@example.com")
+## Custom AutoFixture Attributes (Quick Reference)
 
-@pytest.fixture
-def database_session():
-    # Setup
-    session = create_test_session()
-    yield session
-    # Teardown
-    session.close()
+- `DefaultAutoDataAttribute`: Provides a pre-customized fixture for most tests. Applies core customizations and supports type-specific fixture setup via AutoSetup().
+
+- `AutoNSubPropertyDataAttribute`: Like MemberData, but with automatic fixture generation and support for NSubstitute integration.
+
+- `DefaultInlineAutoDataAttribute`: For inline parameterized data with the same fixture benefits.
+
+### Implementation Reference for Custom Attributes and Customizations
+
+> **Note for Copilot:**  
+> The following code snippets illustrate the implementation and intended usage of custom test attributes and fixture customizations that are distributed via an internal NuGet package. Do **not** copy these snippets directly into test classes. Instead, always use the provided attributes (`DefaultAutoDataAttribute`, etc.) in your test code **in place of the default xUnit or AutoFixture attributes**. The code is provided here for understanding and context, not for duplication.
+
+```csharp
+    public class DefaultAutoDataAttribute : AutoDataAttribute
+    {
+        public DefaultAutoDataAttribute(Type? t = null)
+            : base(() => new Fixture().Customize(new DefaultCompositeCustomization(t)))
+        {
+        }
+    }
+
+    public class AutoNSubPropertyDataAttribute : MemberAutoDataAttribute
+    {
+        public AutoNSubPropertyDataAttribute(string propertyName, params object[] values)
+            : base(new DefaultAutoDataAttribute(null), propertyName, values)
+        {
+        }
+
+        public AutoNSubPropertyDataAttribute(Type? t, string propertyName, params object[] values)
+            : base(new DefaultAutoDataAttribute(t), propertyName, values)
+        {
+        }
+    }
+
+    public class DefaultInlineAutoDataAttribute : InlineAutoDataAttribute
+    {
+        public DefaultInlineAutoDataAttribute(params object[] values)
+            : base(new DefaultAutoDataAttribute(null), values)
+        {
+        }
+
+        public DefaultInlineAutoDataAttribute(Type? t, params object[] values)
+            : base(new DefaultAutoDataAttribute(t), values)
+        {
+        }
+    }
 ```
 
-### Parameterized Tests
-```python
-@pytest.mark.parametrize("input,expected", [
-    (1, 2),
-    (2, 4),
-    (3, 6),
-])
-def test_double_function(input, expected):
-    assert double(input) == expected
+## Null Guard Tests
+
+Implement null guard tests for constructors and public methods as follows:
+```csharp
+  [Theory, DefaultAutoData]
+  public void Constructor_Guarded(GuardClauseAssertion guard)
+  {
+      guard.Verify(typeof(MediaSystemTenantManagementService).GetConstructors());
+      var methods = typeof(MediaSystemTenantManagementService)
+                .GetMethods()
+                .Where(method => method.GetParameters().All(p => !p.IsOptional));
+      guard.Verify(methods);
+  }
+```
+## Dependency Injection and Fixture Customization
+
+- Always inject dependencies with `[Theory, DefaultAutoData]` for DRY, deterministic setup.
+    
+- If extra setup is needed for a type, add a public static `Action<IFixture> AutoSetup()` method in the test class. The custom fixture will invoke this automatically.
+
+```csharp
+[Theory, DefaultAutoData(typeof(MyServiceTests))]
+public void DoSomething_Works(MyService sut, AnotherService service)
+{
+    // test
+}
+public static Action<IFixture> AutoSetup()
+{
+    return fixture =>
+    {
+        fixture.Customize<AnotherService>(c => 
+            // Custom fixture configuration here
+        );
+    };
+}
 ```
 
-### Mocking with unittest.mock
-```python
-from unittest.mock import Mock, patch
+## Existing mocks and customizations
 
-@patch('module.external_service')
-def test_service_call(mock_service):
-    mock_service.return_value = {"status": "success"}
-    result = my_function()
-    assert result["status"] == "success"
-    mock_service.assert_called_once()
+These mocks and customizations are available out of the box. Yiu don't need to imblement it by yourself, just use them
+
+### MockHttpMessageHandler
+
+Use `MockHttpMessageHandler` for testing code that interacts with HttpClient and requires low-level HTTP simulation (rather than just interface substitution).
+
+```csharp
+public class MockHttpMessageHandler : HttpMessageHandler
+{
+    public Func<HttpResponseMessage> MockedResponse { get; set; }
+    public HttpRequestMessage OriginalRequest { get; private set; }
+
+    public MockHttpMessageHandler()
+    { }
+
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        if (MockedResponse == null)
+        {
+            throw new InvalidOperationException("MockedResponse is not set");
+        }
+        OriginalRequest = request;
+        return Task.FromResult(MockedResponse.Invoke());
+    }
+
+    protected override HttpResponseMessage Send(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        if (MockedResponse == null)
+        {
+            throw new InvalidOperationException("MockedResponse is not set");
+        }
+        OriginalRequest = request;
+        return MockedResponse.Invoke();
+    }
+}
 ```
 
-## Test Categories
+### Rely on the already exist customizatios:
+```csharp
 
-### 1. Unit Tests
-- Test individual functions/methods in isolation
-- Mock external dependencies
-- Fast execution (< 100ms per test)
+public class DefaultCustomization : ICustomization
+{
+    public void Customize(IFixture fixture)
+    {
+        fixture.Customize<MockHttpMessageHandler>(b => b.FromFactory(() =>
+         {
+             return new MockHttpMessageHandler();
+         }));
 
-### 2. Integration Tests
-- Test interaction between components
-- Use real databases/services in test environment
-- Slower but more comprehensive
+        fixture.Customize<HttpClient>(b => b.FromFactory(() =>
+        {
+            var handler = fixture.Create<MockHttpMessageHandler>();
+            return new HttpClient(handler);
+        }));
 
-### 3. Property-Based Tests
-```python
-from hypothesis import given, strategies as st
-
-@given(st.integers())
-def test_absolute_value_is_positive(x):
-    assert abs(x) >= 0
+        fixture.Customize<IServiceCollection>(b => b.FromFactory(() =>
+        {
+            var services = new ServiceCollection();
+            services.AddLogging();
+            services.AddHttpClient();
+            return services;
+        }));
+    }
+}
 ```
 
-## Coverage Guidelines
-- Aim for 80-90% code coverage
-- Focus on critical business logic
-- Don't chase 100% coverage at the expense of test quality
-- Use `pytest-cov` for coverage reporting
+## Example Test Classes
 
-## Common Patterns
+Refer to the following test classes for examples:
 
-### Testing Exceptions
-```python
-def test_should_raise_error_when_invalid_input():
-    with pytest.raises(ValueError, match="Invalid input"):
-        process_data(None)
-```
+- `tests/Sitecore.MMS.Management.Core.UnitTests/Services/Azure/AzureStorageManagementServiceTests.cs`
+- `tests/Sitecore.MMS.Management.Core.UnitTests/Services/CHCreateOperationsTests.cs`
+- `tests/Sitecore.MMS.Management.Core.UnitTests/Services/TokenProviderTests.cs`
 
-### Testing Async Code
-```python
-@pytest.mark.asyncio
-async def test_async_function():
-    result = await async_operation()
-    assert result is not None
-```
-
-### Database Testing
-```python
-@pytest.fixture
-def db_session():
-    engine = create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(engine)
-    session = SessionLocal()
-    yield session
-    session.close()
-```
-
-## CI/CD Integration
-- Run tests on every commit
-- Use parallel test execution for faster feedback
-- Generate test reports and coverage metrics
-- Fail builds on test failures or coverage drops
-
-## Tools and Libraries
-- **pytest**: Primary testing framework
-- **pytest-cov**: Coverage reporting
-- **pytest-xdist**: Parallel test execution
-- **factory-boy**: Test data generation
-- **freezegun**: Time/date mocking
-- **responses**: HTTP request mocking
+These classes demonstrate the application of the aforementioned frameworks, tools, and conventions in real-world scenarios.
 
 ## Anti-Patterns to Avoid
-- Testing implementation details instead of behavior
-- Overly complex test setup
-- Tests that depend on external services
-- Flaky tests that pass/fail inconsistently
-- Testing getters/setters without logic
-- One assertion per test (too rigid)
 
-## Test Organization
-```
-tests/
-├── unit/
-│   ├── test_models.py
-│   ├── test_services.py
-│   └── test_utils.py
-├── integration/
-│   ├── test_api.py
-│   └── test_database.py
-├── fixtures/
-│   └── conftest.py
-└── data/
-    └── test_data.json
-```
+- ❌ Hand-crafted test data (prefer AutoFixture)
+    
+- ❌ Using `[Fact]` when parameterization is needed
+    
+- ❌ Asserting against implementation details (test only observable behavior)
+    
+- ❌ Duplicating fixture setup in multiple tests (prefer customizations)
+
+- ❌ Avoid testing of trivial pass-throughs (e.g., single-line property getters/setters without logic).
+    
