@@ -7,7 +7,6 @@ from mcp import (
 from mcp.types import (
     TextContent, 
     PromptMessage, 
-    ResourceReference,
     Resource, 
     Prompt
 )
@@ -96,53 +95,55 @@ def _get_available_files(directory: Path, extension: str = ".md") -> List[str]:
 @mcp.prompt()
 def unit_testing_guidelines() -> GetPromptResult:
     """Comprehensive unit testing guidelines """
+    
+    # Load all the related content directly
+    main_content = _load_prompt_content("unit-testing-guidelines.md")
+    autofixture_content = _load_reference_content("autofixture-attributes.cs")
+    customization_content = _load_reference_content("customization-reference.cs")
+    mocking_content = _load_reference_content("mocking-reference.cs")
+    testing_examples_content = _load_example_content("testing-examples.cs")
+    autsetup_examples_content = _load_example_content("autsetup-examples.cs")
+    nullguards_examples_content = _load_example_content("nullguards-examples.cs")
+    
+    # Combine all content into a comprehensive prompt
+    combined_content = f"""# Unit Testing Guidelines
+
+{main_content}
+
+## AutoFixture Attributes Reference
+
+{autofixture_content}
+
+## Customization Reference
+
+{customization_content}
+
+## Mocking Reference
+
+{mocking_content}
+
+## Testing Examples
+
+{testing_examples_content}
+
+## AutoSetup Examples
+
+{autsetup_examples_content}
+
+## NullGuards Examples
+
+{nullguards_examples_content}
+"""
+    
     return GetPromptResult(
-        description="Comprehensive unit testing guidelines including Autofifture, and testing best practices",
+        description="Comprehensive unit testing guidelines including Autofixture, and testing best practices",
         messages=[
             PromptMessage(
                 role="user",
-                content=[
-                    TextContent(
-                        type="text",
-                        text=_load_prompt_content("unit-testing-guidelines.md")
-                    ),
-                    ResourceContent(
-                        type="resource",
-                        resource=ResourceReference(
-                            uri=f"{REFERENCE_SCHEME}autofixture-attributes"
-                        )
-                    ),
-                    ResourceContent(
-                        type="resource",
-                        resource=ResourceReference(
-                            uri=f"{REFERENCE_SCHEME}customization-reference"
-                        )
-                    ),
-                    ResourceContent(
-                        type="resource",
-                        resource=ResourceReference(
-                            uri=f"{REFERENCE_SCHEME}mocking-reference"
-                        )
-                    ),
-                    ResourceContent(
-                        type="resource",
-                        resource=ResourceReference(
-                            uri=f"{EXAMPLE_SCHEME}testing-examples"
-                        )
-                    ),
-                    ResourceContent(
-                        type="resource",
-                        resource=ResourceReference(
-                            uri=f"{EXAMPLE_SCHEME}autsetup-examples"
-                        )
-                    ),
-                    ResourceContent(
-                        type="resource",
-                        resource=ResourceReference(
-                            uri=f"{EXAMPLE_SCHEME}nullguards-examples"
-                        )
-                    )
-                ]
+                content=TextContent(
+                    type="text",
+                    text=combined_content
+                )
             )
         ],
     )
